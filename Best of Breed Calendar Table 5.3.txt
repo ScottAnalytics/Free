@@ -1,0 +1,167 @@
+//Best of Breed Calendar Table for Power BI Version 5.3 2019.07.06 Curated and Adapted by Scott Pickering
+//
+//Authorship Credits and MANY THANKS given to all the talented and generous people who pioneered and freely shared their work before me
+//Many of whom did this work in the pre-Power BI era when the code we now call M was known as Power Query Formula Language
+//There are probably many others; I'm listing the sources I found on the web and whose work directly contributed to this script
+//The dates below are the publication dates I found on the web
+    //some may be "most recent" not necessarily "first work" by that author on this topic;
+    //there are likely even more predecessors; definitely more calendar table authors in SQL and Excel
+
+//2011.08.31 Boyan Penev published DateStream on Azure
+//2011.11.15 Rob Collie blogged about Boyan Penev's approach
+//2013.11.19 Chris Webb who implemented a Power Query function to create the table instead of a regular query
+//2014.02.13 Matt Masson for adding to Chris Webb's approach - he credits Faisal Mohamood who also previously did this
+//2014.10.01 Gina Meronek for adding logic and explanations to Matt Masson's work
+//2016.02.10 Imke Feldmann for her post on Lukas Lotters' blog adding a one line method of calculating Week Offsets
+//2017.05.19 Sam McKay for adding Fiscal Year as a parameter and sharing with many Power BI beginners
+//2017.09.20 Avi Singh for Offset logic and Fiscal Year logic using FYEndMonth
+//2018.07.24 Interkoubess for sharing the Date.EndOfWeek([Date],Day.Monday)) criteria for WeekEnding Sunday logic which I needed
+
+//This integration of ideas and methods into this Best of Breed was only possible due to the efforts of the above people
+//This version does not include every possible additon and varition, like ISO, 4/4/5 Retail, 52/53 Week, Period vs Month, etc.
+    // The idea is Best of Breed, not maximum massive "just in case" bloated calendar table with everything ever thought of
+//However there are several cases of multiple expressions of the same time interval,
+    //primarily (short) and (long) to accommodate limited label space on visualization axes
+
+
+let fnCalendarTable = (StartDate as date, EndDate as date, FYEndMonth as number) as table =>
+  let
+    CurrentDate = DateTime.Date(DateTime.FixedLocalNow()),
+
+// Determine number of days between start and end date, and add a day back, as Duration math above will give you the days
+    //literally between rather than inclusive. Ex Dec 31 - Dec 1 = 30 days, but we need 31 days in that period
+    DayCount = Duration.Days(Duration.From(EndDate - StartDate))+1,
+
+// Create a Dates list object starting at the start date, for the duration of the day count, increment of one year
+    Source = List.Dates(StartDate,DayCount,#duration(1,0,0,0)),
+
+// Turn that date list into a table
+    TableFromList = Table.FromList(Source, Splitter.SplitByNothing()),
+
+// Update the data type to date
+    ChangedType1 = Table.TransformColumnTypes(TableFromList,{{"Column1", type date}}),
+
+// Rename the only column in the table to "Date"
+    RenamedColumns = Table.RenameColumns(ChangedType1,{{"Column1", "Date"}}),
+
+// Add columns to the table for different date dimensions
+
+//  YEAR
+    AddedYear = Table.AddColumn(RenamedColumns, "Year", each Date.Year([Date]),type text),
+    AddedShortYear = Table.AddColumn(AddedYear, "YearYY", each Text.End(Text.From([Year]), 2), type text),
+    AddedYearEnding = Table.AddColumn(AddedShortYear, "YearEnding", each Date.EndOfYear([Date]), type date),
+
+
+//  QUARTER    
+    AddedQuarterNumber = Table.AddColumn(AddedYearEnding, "QtrNum", each Date.QuarterOfYear([Date]), type text),
+    AddedQuarterYearLong = Table.AddColumn(AddedQuarterNumber, "QtrYearLong", each "Q" & Number.ToText([QtrNum]) & " " & Number.ToText([Year])),
+    AddedQtr = Table.AddColumn(AddedQuarterYearLong,"Qtr", each "Q" & Number.ToText([QtrNum])),
+    AddedQtrYear = Table.AddColumn(AddedQtr,"QtrYear", each [Qtr] & " " & [YearYY]),
+    AddedYearQtr = Table.AddColumn(AddedQtrYear,"YearQtr", each [YearYY] & " " & [Qtr]),
+    AddedQtrEnding = Table.AddColumn(AddedYearQtr, "QtrEnding", each Date.EndOfQuarter([Date]), type date),
+
+
+//  MONTH 
+    AddedMonthNumber = Table.AddColumn(AddedQtrEnding, "MoNum", each Date.Month([Date]), type text),
+    AddedMonthNameShort = Table.AddColumn(AddedMonthNumber, "Month", each Date.ToText([Date], "MMM"), type text),
+    AddedMonthNameLong = Table.AddColumn(AddedMonthNameShort, "MonthLong", each Date.ToText([Date], "MMMM"), type text),
+    AddedMonthYearShort = Table.AddColumn(AddedMonthNameLong, "MoYear", each [Month] & " " & [YearYY]),
+    AddedMonthYearLong = Table.AddColumn(AddedMonthYearShort, "MoYearLong", each (try(Text.Range([MonthLong],0,3)) otherwise [MonthLong]) & " " & Number.ToText([Year])),
+    AddedMoEnding = Table.AddColumn(AddedMonthYearLong, "MoEnding", each Date.EndOfMonth([Date]), type date),
+
+
+//  DAY
+    AddedDayofWeekLong = Table.AddColumn(AddedMoEnding, "DOWLong", each Date.ToText([Date], "dddd"), type text),
+    AddedDayOfWeekShort = Table.AddColumn(AddedDayofWeekLong, "DOW", each Date.ToText([Date], "ddd"), type text),
+    AddedDayOfMonthNum = Table.AddColumn(AddedDayOfWeekShort, "DayOfMo", each Date.Day([Date])),
+
+
+//  THESE MONTH/DAY CALCULATIONS WERE TEDIOUS ON DATA TYPES
+    AddedDayOfMonthText = Table.AddColumn(AddedDayOfMonthNum,"DayOfMoText", each [DayOfMo], type text),
+        ChangedType2 = Table.TransformColumnTypes(AddedDayOfMonthText,{{"DayOfMoText",type text}}),
+    AddedDayAndMonth = Table.AddColumn(ChangedType2,"DayAndMonth", each [Month] & " " & [DayOfMoText]),
+    
+    AddedMonthNumText = Table.AddColumn(AddedDayAndMonth,"MoNumText", each [MoNum], type text),
+        ChangedType3 = Table.TransformColumnTypes(AddedMonthNumText,{{"MoNumText",type text}}),
+    AddedDayAndMonthNum = Table.AddColumn(ChangedType3,"DayAndMonthNum", each [MoNumText] & "/" & [DayOfMoText]),    
+        RemovedColumns1 = Table.RemoveColumns(AddedDayAndMonthNum,{"DayOfMoText"}),
+        RemovedColumns2 = Table.RemoveColumns(RemovedColumns1,{"MoNumText"}),
+
+
+//  INTEGER VERSIONS FOR SORTING
+    AddedDateInt = Table.AddColumn(RemovedColumns2, "eSortDate", each [Year] * 10000 + [MoNum] * 100 + [DayOfMo]),
+    AddedYearMoInt = Table.AddColumn(AddedDateInt,"eSortYearMo", each [Year] * 100 + [MoNum]),
+    AddedYearQtrInt = Table.AddColumn(AddedYearMoInt,"eSortYearQtr", each [Year] * 100 + [QtrNum]),   
+
+
+//  DATA TYPE CONVERSIONS
+    ChangedType4 = Table.TransformColumnTypes(AddedYearQtrInt,{{"eSortYearQtr",Int64.Type},{"eSortYearMo",Int64.Type},
+        {"eSortDate",Int64.Type},{"MoNum", Int64.Type},{"QtrNum",Int64.Type}, {"MoYearLong",type text},
+        {"QtrYearLong",type text},{"Year",Int64.Type},{"DayOfMo",Int64.Type}}),
+
+
+//  FISCAL YEAR VIA AVI SINGH
+
+    AddedFiscalYear = Table.AddColumn(ChangedType4,"FiscalYr", each "FY" & Text.End(Text.From(if [MoNum] > FYEndMonth then [Year] + 1 else [Year]), 2 )),
+    AddedFiscalMonthNum = Table.AddColumn(AddedFiscalYear,"FYMoNum", each if [MoNum] > FYEndMonth then [MoNum] - FYEndMonth else [MoNum] + (12 - FYEndMonth), type number),
+    AddedFiscalMonthName = Table.AddColumn(AddedFiscalMonthNum,"FiscalMonth", each [Month]),
+    AddedFiscalMonthNameLong = Table.AddColumn(AddedFiscalMonthName,"FiscalMoLong", each [MonthLong]),    
+    AddedFiscalQuarter = Table.AddColumn(AddedFiscalMonthNameLong,"FiscalQtr", each "FQ" & Text.From(Number.RoundUp([FYMoNum]/3,0))),
+
+
+//  WEEK LOGIC CAN BE TEDIOUS, COMPLEX, AND VARIABLE BY USE CASE
+//  DEFAULT FOR WEEKS = START ON SUNDAY AND END OF SATURDAY (Note Suffix "Sat" to designate when the Week ENDS)
+
+//  The default DayofWeek function in M returns a number from 0-6 with Sunday as 0 and Saturday as 6; Also inclued is DayofWeek using 1-7 with Sunday as 1 and Saturday as 7    
+    AddedDayOfWeekNumber06Sat = Table.AddColumn(AddedFiscalQuarter, "DOWNum0_6Sat", each Date.DayOfWeek([Date])),  
+    AddedDOWNum1_7Sat = Table.AddColumn(AddedDayOfWeekNumber06Sat, "DOWNum1_7Sat", each [DOWNum0_6Sat] +1 ),
+
+//  The default EndOfWeek function in M returns a Saturday date
+    AddedWeekEndingSat = Table.AddColumn(AddedDOWNum1_7Sat, "WkEndingSat", each Date.EndOfWeek([Date]), type date),
+
+//  The default WeekOfYear function in M returns a WeekNumber that starts on each Sunday and ends on each Saturday    
+    AddedWeekNumberSat= Table.AddColumn(AddedWeekEndingSat, "WkNumSat", each Date.WeekOfYear([Date])),
+
+//  This value calculates WeekNumber that adds continuously and spans multiple years (does not reset after Week 53) for weeks ending on Saturday
+    AddedWeekNumAllSat = Table.AddColumn(AddedWeekNumberSat, "WkNumAllSat", 
+        each Number.RoundUp(((Duration.Days(Duration.From([Date] - StartDate))) + Date.DayOfWeek(StartDate,Day.Sunday) +1 ) / 7 )),
+ 
+
+//  LOGIC FOR WEEKS THAT START ON MONDAY AND END ON SUNDAY (Note Suffix "Sun" to designate when the Week ENDS)
+    AddedDayOfWeekSun = Table.AddColumn(AddedWeekNumAllSat, "DOWNum0_6Sun", each Date.DayOfWeek([Date],Day.Monday)), 
+    AddedDOWNum1_7Sun = Table.AddColumn(AddedDayOfWeekSun, "DOWNum1_7Sun", each [DOWNum0_6Sun] +1 ),
+    AddedWeekEndingSun = Table.AddColumn(AddedDOWNum1_7Sun, "WkEndingSun", each Date.EndOfWeek([Date],Day.Monday), type date),
+    AddedWeekNumSun= Table.AddColumn(AddedWeekEndingSun, "WkNumSun", each Date.WeekOfYear([Date],Day.Monday)),
+    AddedWeekNumAllSun = Table.AddColumn(AddedWeekNumSun, "WkNumAllSun", 
+        each Number.RoundUp(((Duration.Days(Duration.From([Date] - StartDate))) + Date.DayOfWeek(StartDate,Day.Monday)+1) / 7 )),
+
+ 
+// OFFSET LOGIC VIA AVI SINGH - Note that Relative Date Filtering in Power BI can accomplish much of this too
+    AddedWeekdayWeekend = Table.AddColumn(AddedWeekNumAllSun, "WeekdayWeekend", each if [DOWNum0_6Sat] = 0 or [DOWNum0_6Sat] = 6
+        then "Weekend" else "Weekday"),
+    AddedPastFutureFlag = Table.AddColumn(AddedWeekNumAllSun, "PastFuture", each if [Date] > CurrentDate then "Future" else "Past"),
+    AddedOffsetCurMonth = Table.AddColumn(AddedPastFutureFlag, "OffsetCurMo", each (Date.Year([Date]) - Date.Year(CurrentDate) ) * 12
+        + Date.Month([Date]) - Date.Month(CurrentDate), Int64.Type),
+    AddedOffsetCurQtr = Table.AddColumn(AddedOffsetCurMonth, "OffsetCurQtr", each 
+       ( Date.Year([Date]) - Date.Year(CurrentDate) ) * 4
+        + Number.RoundUp(Date.Month([Date]) / 3) - Number.RoundUp(Date.Month(CurrentDate) / 3), Int64.Type),
+    AddedOffsetCurYear = Table.AddColumn(AddedOffsetCurQtr, "OffsetCurYear", each Date.Year([Date]) - Date.Year(CurrentDate), Int64.Type),
+    AddedOffsetCurrentWeekSat = Table.AddColumn(AddedOffsetCurYear, "OffsetCurWkSat",
+        each Number.RoundUp(Number.From(Date.StartOfWeek([Date])) - Number.From(Date.StartOfWeek(CurrentDate))) / 7 ),
+    AddedOffsetCurrentWeekSun = Table.AddColumn(AddedOffsetCurrentWeekSat, "OffsetCurWkSun",
+        each Number.RoundUp(Number.From(Date.StartOfWeek([Date],Day.Monday)) - Number.From(Date.StartOfWeek(CurrentDate))) / 7 ),
+
+
+//  DATA TYPE CONVERSIONS
+    ChangedType5 = Table.TransformColumnTypes(AddedOffsetCurrentWeekSun,{{"Year", type text},{"DOWNum0_6Sat", Int64.Type},{"DOWNum1_7Sat", Int64.Type},
+        {"WkNumSat", Int64.Type}, {"WkNumAllSat", Int64.Type}, {"DOWNum0_6Sun", Int64.Type}, {"DOWNum1_7Sun", Int64.Type},
+        {"WkNumSun", Int64.Type}, {"WkNumAllSun", Int64.Type},{"OffsetCurWkSat", Int64.Type},{"OffsetCurWkSun", Int64.Type}}),
+
+
+//  SORT NOT NEEDED FOR DATA TO WORK CORRECTLY BUT HELPFUL FOR VALIDATION
+    ReSortedRowsbyDate = Table.Sort(ChangedType5,{{"Date", Order.Ascending}})
+
+in
+    ReSortedRowsbyDate 
+in
+    fnCalendarTable
