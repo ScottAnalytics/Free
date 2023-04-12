@@ -152,6 +152,13 @@ let fnCalendarTable = (StartDate as date, EndDate as date, FYEndMonth as number)
         each Number.RoundUp(Number.From(Date.StartOfWeek([Date],Day.Monday)) - Number.From(Date.StartOfWeek(CurrentDate))) / 7 ),
 
 
+"Merged Queries" = Table.NestedJoin(InsertChangedType, {"Date"}, PayPeriods, {"EOD"}, "PayPeriods", JoinKind.LeftOuter),
+    "Expanded PayPayPeriods" = Table.ExpandTableColumn(Merged Queries", "PayPeriods", {"PP", "EOD", "SEPD"}, {"PP", "EOD", "SEPD"}),
+    "Filled Down" = Table.FillDown("Expanded PayPayPeriods",{"PP", "EOD", "SEPD"}),
+    "Added Custom" = Table.AddColumn("Filtered Rows", "FY & PP", each [Fiscal Year]&" PP"& Text.PadStart( Text.From( [PP] ), 2, "0"))
+
+
+
 //  DATA TYPE CONVERSIONS
     ChangedType5 = Table.TransformColumnTypes(AddedOffsetCurrentWeekSun,{{"Year", type text},{"DOWNum0_6Sat", Int64.Type},{"DOWNum1_7Sat", Int64.Type},
         {"WkNumSat", Int64.Type}, {"WkNumAllSat", Int64.Type}, {"DOWNum0_6Sun", Int64.Type}, {"DOWNum1_7Sun", Int64.Type},
